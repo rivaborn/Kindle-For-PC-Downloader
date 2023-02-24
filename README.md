@@ -5,7 +5,7 @@ This has worked well for years, and I have used Kindle for PC Version 1.17.44170
 
 I found some programs that purported to automate downloading your kindle library but none worked. I tried to manually download my library, but you have to click one book at a time..... and I have a life. This App automates that process, all it does is click on the Kindle for PC app repeatedly and downloads your books. It is based on one specific Kindle for PC behavior - when your list of books is sorted by RECENT, downloading a book takes it to the top of the list and the list moves down - so you can keep clicking on the same spot to download all your books.
 
-Out of more than 30,000 books, 44 books did not download on the PC app and I downloaded these books from the Amazon website directly. I was able to import all books into Calibre and 32 could not be converted into the Epub format.
+Out of more than 30,000 books, 44 books did not download on the PC app and I downloaded these books from the Amazon website directly. I was able to import all books into Calibre and 32 could not be converted into the epub format.
 
 I wrote this in Visual C++ Community Edition and my installation is a tad borked. It won't let me create new dialog boxes and I ended up modifying the About dialog box for my needs. The whole thing took about an hour to write, it works, and I am not inclined to put in any more effort. This is a very simple program that does one thing reasonably well. I am uploading it because I found it very useful and others may too. I can think of many simple changes that would improve utility, but life calls.
 
