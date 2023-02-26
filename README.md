@@ -10,7 +10,7 @@ Out of more than 30,000 books, 44 books did not download on the PC app and I dow
 I wrote this in Visual C++ Community Edition and my installation is a tad borked. It won't let me create new dialog boxes and I ended up modifying the About dialog box for my needs. The whole thing took about an hour to write, it works, and I am not inclined to put in any more effort. This is a very simple program that does one thing reasonably well. I am uploading it because I found it very useful and others may too. I can think of many simple changes that would improve utility, but life calls.
 
 How To Use
-1. Kindle for PC must be in List View and Sorterd by Recent, scroll to the bottom of the list
+1. Kindle for PC must be in List View and Sorted by Recent, scroll to the bottom of the list
 2. Launch KindleDownloader 
 3. Click File Menu and select Kindle Downloader
 4. On the new screen, Click "Select Kindle Book List" button - you now have 3 seconds to move your cursor to the Kindle for PC App, over any title
