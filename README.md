@@ -13,7 +13,7 @@ How To Use
 1. Kindle for PC must be in List View and Sorted by Recent, scroll to the bottom of the list
 2. Launch KindleDownloader 
 3. Click File Menu and select Kindle Downloader
-4. On the new screen, Click "Select Kindle Book List" button - you now have 3 seconds to move your cursor to the Kindle for PC App, over any title. The cursor location at the end of 3 seconds will be the point clicked for all ebook downloads.
+4. On the new screen, Click the "Select Kindle Book List" button - you now have 3 seconds to move your cursor to the Kindle for PC App, over any title. The cursor location at the end of 3 seconds will be the point clicked for all ebook downloads.
 5. KindleDownloader will click download about once every 4 seconds
 6. Press F9 to stop the program
 7. KindleDownloader will attempt to download 1000 books each run
