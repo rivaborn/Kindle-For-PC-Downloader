@@ -25,4 +25,4 @@ Troubleshooting
 4. KFX titles - "Your Kindle app required an update to view this content. Click here to download and install the free update (supported OS: Windows 10, Windows 8).". Skip these titles. I had 44 out of more than 30,000 that mandated KFX. I could download them directly from the Amazon website and import into Calibre.
 5. I find the Kindle for PC App is slower to start the more books you have downloaded. The most I had downloaded at a time was about 7500 and it took more than 10 minutes for the App to open, YMMV.
 
-
+Calibre is an amazing program and if you find it useful, I recommend you contribute to support its development.
