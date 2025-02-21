@@ -203,49 +203,27 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
             Sleep(3000);
             GetCursorPos(&p);
 
-            for (xcount = 0; xcount < 1000; xcount++)
+            for (xcount = 0; xcount < 800; xcount++) //max count updated from 1000 to 800 -- this matches up with my Kindle book list size better without worrying about overwriting already downloaded ones. Program should download all undownloaded books with 2x runs
             {
+                ZeroMemory(Inputs, sizeof(Inputs));
+                //user must select book from the library list after initializing Kindle Downloader, within the 3 seconds OG coder arranged. This should be the last book in the list, closest to bottom of page. 
+                //this first part up to the SendInputs is the <Enter> key which is how we actually download a book -- based on new 2025 Kindle For PC App, where <Enter> auto selects the download option
+                Inputs[0].type = INPUT_KEYBOARD;
+                Inputs[0].ki.wVk = VK_RETURN; //virtual key code for <Enter> is VK_RETURN
+                Inputs[1].type = INPUT_KEYBOARD;
+                Inputs[1].ki.wVk = VK_RETURN;
+                Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+                SendInput(2, Inputs, sizeof(INPUT));
 
-                Inputs[0].type = INPUT_MOUSE;
-                Inputs[0].mi.dx = p.x;
-                Inputs[0].mi.dy = p.y;
-                Inputs[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE;
-
-                Inputs[1].type = INPUT_MOUSE;
-                Inputs[1].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-
-                Inputs[2].type = INPUT_MOUSE;
-                Inputs[2].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-
-                SendInput(3, Inputs, sizeof(INPUT));
-
-
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                Sleep(1000);
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-
-                SetCursorPos(p.x + 50, p.y + 100);
-
-                Inputs[0].type = INPUT_MOUSE;
-                Inputs[0].mi.dx = p.x + 50;
-                Inputs[0].mi.dy = p.y + 100;
-                Inputs[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE;
-
-
-                Inputs[1].type = INPUT_MOUSE;
-                Inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-
-                Inputs[2].type = INPUT_MOUSE;
-                Inputs[2].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-
-                SendInput(3, Inputs, sizeof(INPUT));
-
-
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                Sleep(3000);
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-
-                SetCursorPos(p.x, p.y);
+                //this second part to next SendInputs is the <UpArrow> to move to the next book entry
+                ZeroMemory(Inputs, sizeof(Inputs));
+                Inputs[0].type = INPUT_KEYBOARD;
+                Inputs[0].ki.wVk = VK_UP; //virtual key code for uparrow: VK_UP
+                Inputs[1].type = INPUT_KEYBOARD;
+                Inputs[1].ki.wVk = VK_UP;
+                Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+                SendInput(2, Inputs, sizeof(INPUT));
+                Sleep(1000); //we don't want to move too quickly
             }
             
             HookProc.join();
