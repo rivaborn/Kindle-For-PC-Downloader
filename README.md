@@ -50,5 +50,3 @@ Troubleshooting
 1. Some books take longer than 4 seconds to download. These books will go into a cycle of starting and stopping the download. Press F9 and download these books manually
 2. Race conditions - Race conditions occur when Kindle for PC is updating its list by moving the downloaded book up while KindleDownloader is clicking. This leads to the book being opened or the list moving to the top. Press F9, go back to the bottom of the list and restart. Note, most Race conditions do nothing and the program continues as expected with no interventions.
 3. Kindle for PC tends to close after downloading about 1000 books. I presume this is caused by problems with accumulating Race condition erros.
-
-
