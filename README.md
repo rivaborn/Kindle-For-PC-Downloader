@@ -3,8 +3,6 @@
 from Taylor (editor) - Kindle library approx 2000 books
 original code does not function with my updated Kindle App, so a few minor changes made to function <INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)> on line 171. 
 
-
-
 How to Use
 1. Kindle for PC should be in List View and Sorterd by Recent, scroll to the bottom of the list *may not be necessary but untested*
 2. Launch KindleDownloader
@@ -14,12 +12,8 @@ How to Use
 6. Press F9 to stop the program - or click <EXIT> in the Kindle Downloader Window
 7. KindleDownloader will attempt to download 800 books each run
 
-
-
 Troubleshooting:
 See below to original "Troubleshooting"
-
-
 
 
 
