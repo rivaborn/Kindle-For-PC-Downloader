@@ -1,7 +1,6 @@
 # Kindle Downloader
 20 February, 2025 UPDATED
-from Taylor (editor) - Kindle library approx 2000 books
-original code does not function with my updated Kindle App, so a few minor changes made to function <INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)> on line 171. 
+
 
 
 How to Use
