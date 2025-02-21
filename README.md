@@ -11,7 +11,7 @@ How to Use
 3. Click File Menu and select KindleDownloader
 4. On the new screen, Click "Select Kindle Book List" - you now have 3 seconds to move your cursor to the Kindle App Window, and SELECT a book entry -- do NOT open the drop down menu
 5. KindleDownloader will click download about once every 1 seconds using "Enter", and then "Up Arrow" to select next entry
-6. Press F9 to stop the program - or click <EXIT> in the Kindle Downloader Window
+6. Press F9 to stop the program - or click "EXIT" in the Kindle Downloader Window
 7. KindleDownloader will attempt to download 800 books each run
 
 
