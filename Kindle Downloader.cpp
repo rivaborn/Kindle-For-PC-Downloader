@@ -224,64 +224,6 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
                 Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
                 SendInput(2, Inputs, sizeof(INPUT));
                 Sleep(1000); //we don't want to move too quickly
-            //Code below is all the original code which no longer functions properly for 2025 updated Kindle for PC App -- as well as an added section from Taylor (me) trying to adapt it. Above method was much easier.
-            /*
-                Inputs[0].type = INPUT_MOUSE;
-                Inputs[0].mi.dx = p.x;
-                Inputs[0].mi.dy = p.y;
-                Inputs[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE;
-
-                Inputs[1].type = INPUT_MOUSE;
-                Inputs[1].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-
-                Inputs[2].type = INPUT_MOUSE;
-                Inputs[2].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-
-                SendInput(3, Inputs, sizeof(INPUT));
-
-
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                Sleep(1000);
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                //Taylor changed the horizontal(x) movement to -25 from +50 to adjust to her Kindle list format; also changed vertical(y) from +100 to +125
-                SetCursorPos(p.x - 25, p.y + 125);
-
-                Inputs[0].type = INPUT_MOUSE;
-                Inputs[0].mi.dx = p.x - 25;
-                Inputs[0].mi.dy = p.y + 125;
-                Inputs[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE;
-
-
-                Inputs[1].type = INPUT_MOUSE;
-                Inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-
-                Inputs[2].type = INPUT_MOUSE;
-                Inputs[2].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-
-                SendInput(3, Inputs, sizeof(INPUT));
-
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                Sleep(1000);//time changed from 3000 to 1000
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-
-                SetCursorPos(p.x, p.y);
-                /* Taylor is adding code here*//*
-                ZeroMemory(Inputs, sizeof(Inputs));
-
-                Inputs[0].type = INPUT_KEYBOARD;
-                Inputs[0].ki.wVk = VK_UP; //virtual key code for uparrow: VK_UP
-
-                Inputs[1].type = INPUT_KEYBOARD;
-                Inputs[1].ki.wVk = VK_UP;
-                Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-
-                SendInput(2, Inputs, sizeof(INPUT));
-
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                Sleep(1000);//time changed from 3000 to 1000
-                if (WaitForSingleObject(hExit, 0) == WAIT_OBJECT_0) break;
-                /*Taylor is finished adding here*/
-                //SetCursorPos(p.x, p.y);
             }
             
             HookProc.join();
