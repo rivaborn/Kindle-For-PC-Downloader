@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build (MSVC)",
+      "type": "shell",
+      "command": "build.bat",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/C"]
+        },
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

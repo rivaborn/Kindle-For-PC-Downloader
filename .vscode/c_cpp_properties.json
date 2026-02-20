@@ -1,0 +1,18 @@
+{
+  "configurations": [
+    {
+      "name": "Win32",
+      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+      "windowsSdkVersion": "10.0.22621.0",
+      "intelliSenseMode": "windows-msvc-x64",
+      "cppStandard": "c++17",
+      "defines": [
+        "_UNICODE",
+        "UNICODE",
+        "WIN32",
+        "_WINDOWS"
+      ]
+    }
+  ],
+  "version": 4
+}
