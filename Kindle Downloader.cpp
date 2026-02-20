@@ -1,285 +1,361 @@
-// Kindle Downloader.cpp : Defines the entry point for the application.
-//
+// Kindle Downloader.cpp
+// Win32 app that automates Kindle for PC library downloads.
+// Shows a single control dialog; automation runs on a worker thread.
 
 #include "framework.h"
 #include "Kindle Downloader.h"
+#include <commctrl.h>
 #include <thread>
+#include <atomic>
 
-#define MAX_LOADSTRING 100
+#pragma comment(lib, "comctl32.lib")
 
-// Global Variables:
-HINSTANCE hInst;                                // current instance
-WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
-WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
-HANDLE hExit = NULL;
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+#define WM_APP_SET_STATE    (WM_APP + 1)   // worker -> UI: WPARAM = new AppState
+#define MAX_BOOKS           800            // max iterations per run
+#define KINDLE_STABLE_POLLS 3             // polls foreground != dialog before starting
 
-// Forward declarations of functions included in this code module:
-ATOM                MyRegisterClass(HINSTANCE hInstance);
-BOOL                InitInstance(HINSTANCE, int);
-LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    KindleWindow(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK    KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
-void executeHook();
+// ---------------------------------------------------------------------------
+// State machine
+// ---------------------------------------------------------------------------
+enum AppState { Idle, WaitingForKindle, Running, Paused, Stopped };
 
-int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
-                     _In_opt_ HINSTANCE hPrevInstance,
-                     _In_ LPWSTR    lpCmdLine,
-                     _In_ int       nCmdShow)
+// ---------------------------------------------------------------------------
+// Globals
+// ---------------------------------------------------------------------------
+static HINSTANCE            g_hInst       = NULL;
+static HWND                 g_hDlg        = NULL;
+static AppState             g_state       = Idle;
+
+// Worker thread + sync primitives
+static std::thread          g_workerThread;
+static HANDLE               g_hStopEvent  = NULL;  // manual-reset; SET = stop
+static HANDLE               g_hPauseEvent = NULL;  // manual-reset; SET = running, RESET = paused
+
+// F9 keyboard hook thread
+static std::atomic<DWORD>   g_hookThreadId{ 0 };
+static HANDLE               g_hookReadyEvent = NULL;
+
+// ---------------------------------------------------------------------------
+// Forward declarations
+// ---------------------------------------------------------------------------
+static void         RequestStop();
+static void         JoinWorker();
+static void         UpdateUiState(HWND hDlg, AppState state);
+INT_PTR CALLBACK    MainDlgProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    KeyboardProc(int, WPARAM, LPARAM);
+static void         HookThreadProc();
+
+// ---------------------------------------------------------------------------
+// Entry point — just show the dialog; no main window needed
+// ---------------------------------------------------------------------------
+int APIENTRY wWinMain(_In_     HINSTANCE hInstance,
+                      _In_opt_ HINSTANCE /*hPrevInstance*/,
+                      _In_     LPWSTR    /*lpCmdLine*/,
+                      _In_     int       /*nCmdShow*/)
 {
-    UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
+    g_hInst = hInstance;
 
-    // TODO: Place code here.
+    INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_UPDOWN_CLASS };
+    InitCommonControlsEx(&icc);
 
-    // Initialize global strings
-    LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-    LoadStringW(hInstance, IDC_KINDLEDOWNLOADER, szWindowClass, MAX_LOADSTRING);
-    MyRegisterClass(hInstance);
+    // Start the F9 keyboard hook on its own thread (needs a message pump).
+    g_hookReadyEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    std::thread hookThread(HookThreadProc);
+    WaitForSingleObject(g_hookReadyEvent, 2000);
+    CloseHandle(g_hookReadyEvent);
+    g_hookReadyEvent = NULL;
 
-    // Perform application initialization:
-    if (!InitInstance (hInstance, nCmdShow))
-    {
-        return FALSE;
-    }
+    // Run the app as a modal dialog.
+    DialogBox(hInstance, MAKEINTRESOURCE(IDD_MAINDLG), NULL, MainDlgProc);
 
-    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_KINDLEDOWNLOADER));
+    // Shut down the hook thread cleanly.
+    DWORD tid = g_hookThreadId.load();
+    if (tid) PostThreadMessage(tid, WM_QUIT, 0, 0);
+    hookThread.join();
 
-    MSG msg;
-
-    // Main message loop:
-    while (GetMessage(&msg, nullptr, 0, 0))
-    {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-
-    return (int) msg.wParam;
-}
-
-
-
-//
-//  FUNCTION: MyRegisterClass()
-//
-//  PURPOSE: Registers the window class.
-//
-ATOM MyRegisterClass(HINSTANCE hInstance)
-{
-    WNDCLASSEXW wcex;
-
-    wcex.cbSize = sizeof(WNDCLASSEX);
-
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_KINDLEDOWNLOADER));
-    wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_KINDLEDOWNLOADER);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-    return RegisterClassExW(&wcex);
-}
-
-//
-//   FUNCTION: InitInstance(HINSTANCE, int)
-//
-//   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
-//
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
-{
-   hInst = hInstance; // Store instance handle in our global variable
-
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
-
-   if (!hWnd)
-   {
-      return FALSE;
-   }
-
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
-
-   return TRUE;
-}
-
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message)
-    {
-    case WM_COMMAND:
-        {
-            int wmId = LOWORD(wParam);
-            // Parse the menu selections:
-            switch (wmId)
-            {
-            case ID_FILE_KINDLEDOWNLOADER:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
-        }
-        break;
-    case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            // TODO: Add any drawing code that uses hdc here...
-            EndPaint(hWnd, &ps);
-        }
-        break;
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hWnd, message, wParam, lParam);
-    }
     return 0;
 }
 
-// Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+// ---------------------------------------------------------------------------
+// Key sending helper
+// ---------------------------------------------------------------------------
+static void SendKey(WORD vk)
+{
+    INPUT inp[2] = {};
+    inp[0].type       = INPUT_KEYBOARD;
+    inp[0].ki.wVk     = vk;
+    inp[1].type       = INPUT_KEYBOARD;
+    inp[1].ki.wVk     = vk;
+    inp[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(2, inp, sizeof(INPUT));
+}
+
+// ---------------------------------------------------------------------------
+// WaitInterruptible
+// Waits up to `ms` milliseconds.  Blocks while paused (timer frozen).
+// Returns true  if the stop event fired (caller should exit).
+// Returns false if the time elapsed normally.
+// ---------------------------------------------------------------------------
+static bool WaitInterruptible(DWORD ms)
+{
+    HANDLE h[2] = { g_hStopEvent, g_hPauseEvent };
+    DWORD remaining = ms;
+
+    while (true)
+    {
+        // Check stop first.
+        if (WaitForSingleObject(g_hStopEvent, 0) == WAIT_OBJECT_0)
+            return true;
+
+        // PauseEvent RESET means paused — block until resume or stop.
+        if (WaitForSingleObject(g_hPauseEvent, 0) == WAIT_TIMEOUT)
+        {
+            DWORD r = WaitForMultipleObjects(2, h, FALSE, INFINITE);
+            if (r == WAIT_OBJECT_0) return true;  // stop
+            continue;                              // resumed; re-check
+        }
+
+        if (remaining == 0) return false;
+
+        DWORD slice = (remaining < 50u) ? remaining : 50u;
+        ULONGLONG t0 = GetTickCount64();
+        Sleep(slice);
+        ULONGLONG elapsed = GetTickCount64() - t0;
+        remaining = (elapsed >= remaining) ? 0u : remaining - (DWORD)elapsed;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WaitForKindle
+// Polls until a window other than hDlg becomes the foreground for
+// KINDLE_STABLE_POLLS consecutive checks (≈ 600 ms).
+// Returns true  if stop was requested.
+// Returns false if a non-dialog foreground was detected (Kindle ready).
+// ---------------------------------------------------------------------------
+static bool WaitForKindle(HWND hDlg)
+{
+    int stable = 0;
+    while (WaitForSingleObject(g_hStopEvent, 0) != WAIT_OBJECT_0)
+    {
+        HWND fg = GetForegroundWindow();
+        if (fg && fg != hDlg)
+        {
+            if (++stable >= KINDLE_STABLE_POLLS) return false;  // detected
+        }
+        else
+        {
+            stable = 0;
+        }
+        Sleep(200);
+    }
+    return true;  // stopped
+}
+
+// ---------------------------------------------------------------------------
+// Worker thread
+// ---------------------------------------------------------------------------
+static void WorkerProc(HWND hDlg, int delaySec)
+{
+    // Phase 1: wait for the user to click into Kindle.
+    if (WaitForKindle(hDlg))
+    {
+        PostMessage(hDlg, WM_APP_SET_STATE, (WPARAM)Stopped, 0);
+        return;
+    }
+
+    PostMessage(hDlg, WM_APP_SET_STATE, (WPARAM)Running, 0);
+
+    for (int i = 0; i < MAX_BOOKS; i++)
+    {
+        // Honour pause / stop before each iteration.
+        if (WaitInterruptible(0)) break;
+
+        SendKey(VK_RETURN);                                          // trigger download
+
+        if (WaitInterruptible((DWORD)delaySec * 1000u)) break;      // configured delay
+
+        SendKey(VK_UP);                                              // move to next book
+
+        if (WaitInterruptible(100u)) break;                          // brief debounce
+    }
+
+    PostMessage(hDlg, WM_APP_SET_STATE, (WPARAM)Stopped, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Run control helpers
+// ---------------------------------------------------------------------------
+static void StartRun(HWND hDlg, int delaySec)
+{
+    g_hStopEvent  = CreateEvent(NULL, TRUE, FALSE, NULL);  // not signalled
+    g_hPauseEvent = CreateEvent(NULL, TRUE, TRUE,  NULL);  // signalled = running
+    g_workerThread = std::thread(WorkerProc, hDlg, delaySec);
+}
+
+static void RequestStop()
+{
+    if (g_hStopEvent)  SetEvent(g_hStopEvent);
+    if (g_hPauseEvent) SetEvent(g_hPauseEvent);  // unblock any pause wait
+}
+
+static void SetPaused(bool paused)
+{
+    if (!g_hPauseEvent) return;
+    if (paused) ResetEvent(g_hPauseEvent);
+    else        SetEvent(g_hPauseEvent);
+}
+
+static void JoinWorker()
+{
+    if (g_workerThread.joinable()) g_workerThread.join();
+    if (g_hStopEvent)  { CloseHandle(g_hStopEvent);  g_hStopEvent  = NULL; }
+    if (g_hPauseEvent) { CloseHandle(g_hPauseEvent); g_hPauseEvent = NULL; }
+}
+
+// ---------------------------------------------------------------------------
+// UI state update  (always called on UI thread)
+// ---------------------------------------------------------------------------
+static void UpdateUiState(HWND hDlg, AppState state)
+{
+    g_state = state;
+
+    const wchar_t* status;
+    switch (state)
+    {
+    case WaitingForKindle: status = L"Status: Waiting for Kindle\u2026"; break;
+    case Running:          status = L"Status: Running";                   break;
+    case Paused:           status = L"Status: Paused";                    break;
+    case Stopped:          status = L"Status: Stopped";                   break;
+    default:               status = L"Status: Idle";                      break;
+    }
+    SetDlgItemText(hDlg, IDC_STATUS_LABEL, status);
+
+    bool canSelect = (state == Idle || state == Stopped);
+    bool isActive  = (state == Running || state == Paused);
+    bool canStop   = (isActive || state == WaitingForKindle);
+
+    EnableWindow(GetDlgItem(hDlg, IDC_SELECT),     canSelect ? TRUE : FALSE);
+    EnableWindow(GetDlgItem(hDlg, IDC_PAUSE),      isActive  ? TRUE : FALSE);
+    EnableWindow(GetDlgItem(hDlg, IDC_STOP),       canStop   ? TRUE : FALSE);
+    EnableWindow(GetDlgItem(hDlg, IDC_DELAY_EDIT), canSelect ? TRUE : FALSE);
+    EnableWindow(GetDlgItem(hDlg, IDC_DELAY_SPIN), canSelect ? TRUE : FALSE);
+
+    SetDlgItemText(hDlg, IDC_PAUSE,
+                   state == Paused ? L"Resume" : L"Pause");
+}
+
+// ---------------------------------------------------------------------------
+// Dialog procedure
+// ---------------------------------------------------------------------------
+INT_PTR CALLBACK MainDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
     UNREFERENCED_PARAMETER(lParam);
-    int X_LOC, Y_LOC;
-    X_LOC = 0; Y_LOC = 0;
-    POINT p;
-    INPUT Inputs[3] = { 0 };
-    int xcount = 0, Offset = 300;
 
     switch (message)
     {
     case WM_INITDIALOG:
-        return (INT_PTR)TRUE;
+        g_hDlg = hDlg;
+        // Set spin range and default position (buddy edit is set via UDM_SETBUDDY).
+        {
+            HWND hSpin = GetDlgItem(hDlg, IDC_DELAY_SPIN);
+            HWND hEdit = GetDlgItem(hDlg, IDC_DELAY_EDIT);
+            SendMessage(hSpin, UDM_SETBUDDY,   (WPARAM)hEdit, 0);
+            SendMessage(hSpin, UDM_SETRANGE32, (WPARAM)1,     (LPARAM)60);
+            SendMessage(hSpin, UDM_SETPOS32,   0,             (LPARAM)3);
+        }
+        UpdateUiState(hDlg, Idle);
+        return TRUE;
+
+    case WM_APP_SET_STATE:
+    {
+        AppState newState = (AppState)wParam;
+        if (newState == Stopped) JoinWorker();
+        UpdateUiState(hDlg, newState);
+        return TRUE;
+    }
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
+        switch (LOWORD(wParam))
         {
-            if (hExit) SetEvent(hExit);
-            else
-            {
-                EndDialog(hDlg, LOWORD(wParam));
-                return (INT_PTR)TRUE;
-            }
-        }
-
-        if (LOWORD(wParam) == IDC_TargLoc)
+        case IDC_SELECT:
         {
-            hExit = CreateEvent(NULL, TRUE, FALSE, NULL);
-            if (!hExit) break;
-
-            std::thread HookProc(executeHook);
-
-            Sleep(3000);
-            GetCursorPos(&p);
-
-            for (xcount = 0; xcount < 800; xcount++) //max count updated from 1000 to 800 -- this matches up with my Kindle book list size better without worrying about overwriting already downloaded ones. Program should download all undownloaded books with 2x runs
-            {
-                ZeroMemory(Inputs, sizeof(Inputs));
-                //user must select book from the library list after initializing Kindle Downloader, within the 3 seconds OG coder arranged. This should be the last book in the list, closest to bottom of page. 
-                //this first part up to the SendInputs is the <Enter> key which is how we actually download a book -- based on new 2025 Kindle For PC App, where <Enter> auto selects the download option
-                Inputs[0].type = INPUT_KEYBOARD;
-                Inputs[0].ki.wVk = VK_RETURN; //virtual key code for <Enter> is VK_RETURN
-                Inputs[1].type = INPUT_KEYBOARD;
-                Inputs[1].ki.wVk = VK_RETURN;
-                Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-                SendInput(2, Inputs, sizeof(INPUT));
-
-                //this second part to next SendInputs is the <UpArrow> to move to the next book entry
-                ZeroMemory(Inputs, sizeof(Inputs));
-                Inputs[0].type = INPUT_KEYBOARD;
-                Inputs[0].ki.wVk = VK_UP; //virtual key code for uparrow: VK_UP
-                Inputs[1].type = INPUT_KEYBOARD;
-                Inputs[1].ki.wVk = VK_UP;
-                Inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-                SendInput(2, Inputs, sizeof(INPUT));
-                Sleep(1000); //we don't want to move too quickly
-            }
-            
-            HookProc.join();
-            CloseHandle(hExit);
-
-            EndDialog(hDlg, LOWORD(wParam));
-            return (INT_PTR)TRUE;
-        }
-
-        break;
-    }
-    return (INT_PTR)FALSE;
-}
-
-
-
-LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
-{
-    if (nCode == HC_ACTION)
-    {
-        switch (wParam)
-        {
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-            if (reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam)->vkCode == VK_F9)
-                SetEvent(hExit);
+            BOOL ok = FALSE;
+            int delay = (int)GetDlgItemInt(hDlg, IDC_DELAY_EDIT, &ok, FALSE);
+            if (!ok || delay < 1) delay = 3;
+            if (delay > 60)       delay = 60;
+            UpdateUiState(hDlg, WaitingForKindle);
+            StartRun(hDlg, delay);
             break;
         }
+        case IDC_PAUSE:
+            if (g_state == Running)
+            {
+                SetPaused(true);
+                UpdateUiState(hDlg, Paused);
+            }
+            else if (g_state == Paused)
+            {
+                SetPaused(false);
+                UpdateUiState(hDlg, Running);
+            }
+            break;
+
+        case IDC_STOP:
+            RequestStop();
+            // Worker will PostMessage(WM_APP_SET_STATE, Stopped) when done.
+            break;
+
+        case IDC_EXIT_BTN:
+        case IDCANCEL:
+            RequestStop();
+            JoinWorker();
+            EndDialog(hDlg, 0);
+            break;
+        }
+        return TRUE;
+
+    case WM_CLOSE:
+        RequestStop();
+        JoinWorker();
+        EndDialog(hDlg, 0);
+        return TRUE;
     }
-    return CallNextHookEx(0, nCode, wParam, lParam);
+    return FALSE;
 }
 
-
-void executeHook()
+// ---------------------------------------------------------------------------
+// F9 keyboard hook (low-level, runs on its own thread)
+// ---------------------------------------------------------------------------
+LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
-    PostThreadMessage(GetCurrentThreadId(), WM_NULL, 0, 0);
-
-    HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardProc, NULL, 0);
-    if (hook)
+    if (nCode == HC_ACTION && wParam == WM_KEYDOWN)
     {
-        MSG msg;
+        if (reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam)->vkCode == VK_F9)
+            RequestStop();
+    }
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
 
-        do
-        {
-            if (MsgWaitForMultipleObjects(1, &hExit, FALSE, INFINITE, QS_ALLINPUT) != (WAIT_OBJECT_0 + 1))
-                break;
+static void HookThreadProc()
+{
+    g_hookThreadId.store(GetCurrentThreadId());
 
-            while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-            {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-        } while (true);
+    // Prime the message queue before signalling ready.
+    MSG dummy;
+    PeekMessage(&dummy, NULL, 0, 0, PM_NOREMOVE);
+    SetEvent(g_hookReadyEvent);
 
-        UnhookWindowsHookEx(hook);
+    HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, NULL, 0);
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
 
-    SetEvent(hExit);
+    if (hook) UnhookWindowsHookEx(hook);
 }
