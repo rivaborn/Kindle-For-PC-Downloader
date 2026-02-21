@@ -1,4 +1,15 @@
 # Kindle Downloader
+
+2 February, 2024 Update
+I updated the app with Claude incorporating the changes by Taylor753 (https://github.com/Taylor753) to make it easier to use. The Kindle Downloader automates bulk downloading of your Kindle for PC library by repeatedly sending "Enter" (trigger download) and "Up Arrow" (move to next book) to the Kindle window. To use it "Kindle for PC" must be open and in "List View". Sort the list by "Recent" (so that downloading a book moves it to the top and shifts the remaining list down — this is the behavior the automation relies on). Scroll to the bottom of your library list before starting
+
+Options
+1. Delay - Set the "Delay" (seconds) between the download action and the "move up"    action. Default is 3 seconds; range is 1–60. Increase this if your    connection is slow and books take longer to begin downloading.
+2. Kindle Book List - After selecting this, the app waits for you to click on the kindle book list 
+3. Pause - Pause and restart the program
+4. Stop - Stop the program. F9 also stops the program
+5. Exit - Exit the program
+
 20 February, 2025 UPDATED
 from Taylor (editor) - Kindle library approx 2000 books.
 The original code does not function with my updated Kindle App, so a few minor changes were made to function <INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)> on line 171. 
