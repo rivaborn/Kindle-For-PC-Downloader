@@ -11,6 +11,8 @@ I updated the app with Claude incorporating the changes by Taylor753 (https://gi
 4. Stop - Stop the program. F9 also stops the program
 5. Exit - Exit the program
 
+**architecture.md** contains an overview of the program logic.
+
 # 20 February, 2025 Update
 from Taylor (editor) - Kindle library approx 2000 books.
 The original code does not function with my updated Kindle App, so a few minor changes were made to function <INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)> on line 171. 
