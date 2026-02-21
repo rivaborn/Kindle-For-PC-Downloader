@@ -1,22 +1,22 @@
 # Kindle Downloader
 
 2 February, 2026 Update
-I updated the app with Claude incorporating the changes by Taylor753 (https://github.com/Taylor753) to make it easier to use. The Kindle Downloader automates bulk downloading of your Kindle for PC library by repeatedly sending **Enter** (trigger download) and "Up Arrow" (move to next book) to the Kindle window. To use it **Kindle for PC** must be open and in **List View**. Sort the list by **Recent** (so that downloading a book moves it to the top and shifts the remaining list down — this is the behavior the automation relies on). Scroll to the bottom of your library list before starting
+I updated the app with Claude incorporating the changes by Taylor753 (https://github.com/Taylor753) to make it easier to use. The Kindle Downloader automates bulk downloading of your Kindle for PC library by repeatedly sending **Enter** (trigger download) and **Up Arrow** (move to next book) to the Kindle window. To use it **Kindle for PC** must be open and in **List View**. Sort the list by **Recent** (so that downloading a book moves it to the top and shifts the remaining list down — this is the behavior the automation relies on). Scroll to the bottom of your library list before starting
 
-Options
+# Options
 1. Delay - Set the **Delay** (seconds) between the download action and the "move up"    action. Default is 3 seconds; range is 1–60. Increase this if your    connection is slow and books take longer to begin downloading.
 2. Kindle Book List - After selecting this, the app waits for you to click on the kindle book list 
 3. Pause - Pause and restart the program
 4. Stop - Stop the program. F9 also stops the program
 5. Exit - Exit the program
 
-20 February, 2025 UPDATED
+# 20 February, 2025 UPDATED
 from Taylor (editor) - Kindle library approx 2000 books.
 The original code does not function with my updated Kindle App, so a few minor changes were made to function <INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)> on line 171. 
 
 
 
-How to Use
+# How to Use
 1. Kindle for PC should be in List View and Sorterd by Recent, scroll to the bottom of the list *may not be necessary but untested*
 2. Launch KindleDownloader
 3. Click File Menu and select KindleDownloader
@@ -26,13 +26,13 @@ How to Use
 7. KindleDownloader will attempt to download 800 books each run
 
 
-Troubleshooting:
+# Troubleshooting:
 See below to original "Troubleshooting"
 
 
 
 
-ORIGINAL:
+# ORIGINAL:
 I wrote this App to simplify downloading my Kindle library. A bit of background is appropriate - I have more than 30,000 books I have purchased on Amazon Kindle and I have more than 8 kindle devices lying around, excluding multiple IPads with Kindle installed. I keep a list of books I am reading and I may pick up a book after more than a year. I read on different devices and I started to run into a problem of Authors limiting the number of devices you can have a book downloaded on. It got bad enough I took to downloading any books I am reading on the Kindle App for PC and uploading the book to Google Play books.
 
 
@@ -48,7 +48,7 @@ Out of more than 30,000 books, 44 books did not download on the PC app and I dow
 I wrote this in Visual C++ Community Edition and my installation is a tad borked. It won't let me create new dialog boxes and I ended up modifying the About dialog box for my needs. The whole thing took about an hour to write, it works, and I am not inclined to put in any more effort. This is a very simple program that does one thing reasonably well. I am uploading it because I found it very useful and others may too. I can think of many simple changes that would improve utility, but life calls.
 
 
-How To Use
+# How To Use
 1. Kindle for PC must be in List View and Sorterd by Recent, scroll to the bottom of the list
 2. Launch KindleDownloader 
 3. Click File Menu and select KindleDownloader
@@ -58,7 +58,7 @@ How To Use
 7. KindleDownloader will attempt to download 1000 books each run
 
 
-Troubleshooting
+# Troubleshooting
 1. Some books take longer than 4 seconds to download. These books will go into a cycle of starting and stopping the download. Press F9 and download these books manually
 2. Race conditions - Race conditions occur when Kindle for PC is updating its list by moving the downloaded book up while KindleDownloader is clicking. This leads to the book being opened or the list moving to the top. Press F9, go back to the bottom of the list and restart. Note, most Race conditions do nothing and the program continues as expected with no interventions.
 3. Kindle for PC tends to close after downloading about 1000 books. I presume this is caused by problems with accumulating Race condition erros.
