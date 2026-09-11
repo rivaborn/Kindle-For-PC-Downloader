@@ -1,15 +1,65 @@
 # Kindle Downloader
 
+Bulk-downloads your Kindle library so you are not clicking one book at a time.
+
+# 10 September, 2026 Update — support for the new Kindle app
+
+Amazon's current Kindle app (the one from the Microsoft Store) is a completely different program
+from the old Kindle for PC, and the keystroke trick this tool was built on does not work against
+it. The app now supports **both**, chosen with the radio buttons at the top of the dialog:
+
+| Mode                                 | How it drives Kindle                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------- |
+| **New Kindle app (Microsoft Store)** | Reads the library through UI Automation and presses each book's Download button. |
+| **Classic Kindle for PC**            | The original `Enter` / `Up Arrow` keystrokes.                                    |
+
+The new mode is a real improvement rather than a port, because the app publishes its library to the
+accessibility layer. That means the downloader can:
+
+1. **Read the actual title of every book** instead of guessing at whatever is selected.
+2. **Know which books still need downloading** — a book that needs fetching has a Download button
+   and a book you already have does not, so nothing is downloaded twice.
+3. **Stop when it reaches a book you name.** Tick *Stop when this title is reached* and enter
+   something like `The Unwritten Book: An Investigation by Samantha Hunt`. Matching ignores case
+   and spacing, and understands that the app lists authors surname-first, so a fragment of the
+   title is enough. The run stops **without** downloading that book.
+4. **Confirm the download actually happened.** The Download button disappears when a book finishes,
+   so instead of sleeping blind, the app spends your Delay watching for exactly that. A book is
+   only counted as *Downloaded* once it is confirmed; anything slower is reported as *In progress*
+   and left to Kindle, which finishes it in the background.
+5. **Never click blindly.** Every press is aimed at a button located by ASIN and then hit-tested,
+   so if Kindle is not in front, or a row has moved, or something is covering the window, the app
+   waits or retries and says so instead of clicking into whatever is underneath.
+
+There is an on-screen activity log, the current book, and live counters — **Downloaded** (confirmed),
+**In progress**, **Already had**, and **Skipped** (which should normally be zero).
+
+### Log file
+
+Every run also writes a detailed log to `%LOCALAPPDATA%\KindleDownloader\logs\`, with the path shown
+on screen when the run starts. It records every title, the exact button coordinates, what was really
+under the cursor at each press, and every scroll with the distance it moved — flushed line by line,
+so a run that is interrupted still leaves a complete record. Attach it to any bug report.
+
+Sorting by **Title** or **Author** is recommended for long runs — under the Recent sort the library
+re-orders itself as books finish downloading.
+
+See **instructions.md** for the full walkthrough and **architecture.md** for how it works, including
+the quirks of automating a React Native app — several of which quietly cost books before they were
+found in the run log.
+
 # 2 February, 2026 Update
 
-I updated the app with Claude incorporating the changes by Taylor753 (https://github.com/Taylor753) to make it easier to use. The Kindle Downloader automates bulk downloading of your Kindle for PC library by repeatedly sending **Enter** (trigger download) and **Up Arrow** (move to next book) to the Kindle window. To use it **Kindle for PC** must be open and in **List View**. Sort the list by **Recent** (so that downloading a book moves it to the top and shifts the remaining list down — this is the behavior the automation relies on). Scroll to the bottom of your library list before starting
+I updated the app with Claude incorporating the changes by Taylor753 (https://github.com/Taylor753) to make it easier to use. The Kindle Downloader automates bulk downloading of your Kindle for PC library by repeatedly sending **Enter** (trigger download) and **Up Arrow** (move up) to the Kindle window. To use it **Kindle for PC** must be open and in **List View**. Sort the list by **Recent** (so that downloading a book moves it to the top and shifts the remaining list down — this is the behavior the automation relies on). Scroll to the bottom of your library list before starting
 
 # Options
-1. Delay - Set the **Delay** (seconds) between the download action and the **move up**    action. Default is 3 seconds; range is 1–60. Increase this if your    connection is slow and books take longer to begin downloading.
-2. Kindle Book List - After selecting this, the app waits for you to click on the kindle book list 
-3. Pause - Pause and restart the program
-4. Stop - Stop the program. F9 also stops the program
-5. Exit - Exit the program
+1. Kindle app - Choose **New Kindle app (Microsoft Store)** or **Classic Kindle for PC**
+2. Delay - Set the **Delay** (seconds) after starting a download before moving on. Default is 3 seconds; range is 1–60. Increase this if your connection is slow.
+3. Stop when this title is reached - New-app mode only. Stops the run when it reaches the book you name.
+4. Start - Begins the run. In classic mode the app then waits for you to click on the Kindle book list.
+5. Pause - Pause and restart the program
+6. Stop - Stop the program. F9 also stops the program
+7. Exit - Exit the program
 
 **architecture.md** contains an overview of the program logic.
 
@@ -48,7 +98,7 @@ I found some programs that purported to automate downloading your kindle library
 Out of more than 30,000 books, 44 books did not download on the PC app and I downloaded these books from the Amazon website directly. I was able to import all books into Calibre and 32 could not be converted into the Epub format.
 
 
-I wrote this in Visual C++ Community Edition and my installation is a tad borked. It won't let me create new dialog boxes and I ended up modifying the About dialog box for my needs. The whole thing took about an hour to write, it works, and I am not inclined to put in any more effort. This is a very simple program that does one thing reasonably well. I am uploading it because I found it very useful and others may too. I can think of many simple changes that would improve utility, but life calls.
+I wrote this in Visual C++ Community Edition and my installation is a tad borked. It won't let me create new dialog boxes and I ended up modifying the About dialog box for my needs. The whole thing took about an hour to write, it works, and I am not inclined to put in any more effort. This is a very simple program that does one thing reasonably well. I can think of many simple changes that would improve utility, but life calls.
 
 
 # How To Use

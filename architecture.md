@@ -2,34 +2,98 @@
 
 ## Overview
 
-Kindle Downloader is a plain Win32 C++ desktop application that automates bulk downloading of books in **Kindle for PC**. It works by sending synthetic keystrokes (`Enter` to trigger a download, `Up Arrow` to move to the next book) to whatever window is in the foreground, with a user-configurable delay between the two key events.
+Kindle Downloader is a plain Win32 C++ desktop application that automates bulk downloading of a
+Kindle library. It has no main window: it launches directly as a modal dialog, runs its automation
+on a dedicated worker thread, and uses Win32 events for thread synchronisation.
 
-The application has no main window. It launches directly as a modal dialog, runs its automation on a dedicated worker thread, and uses Win32 events for thread synchronisation.
+It ships **two automation engines**, selected by the radio buttons at the top of the dialog:
+
+| Engine                                | Target                                               | How it works                                                                                                                        |
+| ------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **New Kindle app (Microsoft Store)**  | `AMZNKindle.AmazonKindleReadingApp` (`Kindle.exe`)   | Reads the library through UI Automation and presses each book's own **Download** button. Knows every title, so it can stop at one.   |
+| **Classic Kindle for PC**             | The old desktop app                                  | The original behaviour — send `Enter` to download the selected book, `Up` to move to the one above, relying on a Recent-sorted list. |
+
+The new engine is the default and is the reason for most of what follows. The classic engine is
+unchanged from earlier versions and is kept for people still running the old desktop app.
+
+---
+
+## Why the new app needs a different approach
+
+The Store Kindle app is **React Native for Windows hosted in WinUI 3**, not a classic Win32 list.
+Blind `Enter`/`Up` keystrokes are unreliable against it, and they can never satisfy "stop when you
+reach book X" because the program never learns what it is looking at.
+
+UI Automation solves both problems, because the app publishes its whole library:
+
+| UIA node                       | What it gives us                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `library-items-flatlist`       | The scroll viewport. Supports `ScrollPattern`.                                    |
+| `library-item-container`       | One per book. `Name` is `"<Title> by <Author>"` (plus `", New"` once downloaded). |
+| two `Text` children            | The clean title, then the author.                                                 |
+| `download-button-<ASIN>`       | **Present only while the book still needs downloading.**                          |
+| `library-more-menu-<ASIN>`     | Always present; used to identify the row.                                         |
+
+So "does this book need downloading?" is simply "does a `download-button-…` exist?", and the button
+disappears when the download **completes** — a free progress signal.
+
+### Seven quirks that shape the code
+
+These were all measured against app version 1.0.23620.0 and are the reason several pieces of
+`KindleUia.cpp` look more defensive than they otherwise would. Numbers 5–7 were each found only by
+reading a run log after the app looked like it was working.
+
+1. **There is no programmatic press.** The Download buttons expose no `InvokePattern`, and
+   `LegacyIAccessible::DoDefaultAction()` returns `S_OK` while doing nothing at all — React Native
+   publishes the accessibility shell but never wires it to its touch handler. A synthesized mouse
+   click is the only thing that works.
+2. **The click needs a hover first.** Move the pointer, wait ~150 ms so React Native processes
+   pointer-enter, and only then press. Pressing 30–40 ms after the move is silently ignored.
+3. **`VerticalScrollPercent` is always 0.** List movement therefore has to be detected from the
+   content, by matching a named row between two snapshots and comparing where it sits.
+4. **Only on-screen rows can be clicked.** The list keeps ~90–170 rows realised in the UIA tree but
+   only ~8 are visible; off-screen rows have real-looking coordinates that would click the wrong
+   thing.
+5. **`ElementFromPoint` must be retried, not believed first time.** While the list is re-rendering —
+   right after a download completes, or after a scroll — it returns *nothing at all* for a point
+   that is perfectly clickable half a second later. Taking that first answer at face value silently
+   failed 16 of 41 clicks. It is polled 12 × 100 ms, and only a *different, non-empty* AutomationId
+   counts as genuine occlusion.
+6. **Row pitch is the smallest gap between neighbours, not `items[1] - items[0]`.** The list parks a
+   few recycled rows far above the rest, so the first gap can read 1683 px when the true pitch is
+   153 px. Getting this wrong turned a deliberately-short scroll into 1.5 screens that stepped over
+   books entirely.
+7. **`ScrollAmount_LargeIncrement` moves exactly one viewport** (measured: 1198 px against a 1202 px
+   viewport). Zero overlap means a half-visible bottom row lands half-visible at the top and is
+   never pressed. The wheel moves a much smaller, measurable step and is used instead.
 
 ---
 
 ## Source Files
 
-| File | Purpose |
-|---|---|
-| `Kindle Downloader.cpp` | All application logic — entry point, dialog proc, worker thread, helpers |
-| `Kindle Downloader.rc` | Dialog layout, icons, string table (ANSI/UTF-8) |
-| `resource.h` | Numeric IDs for dialog and controls |
-| `framework.h` | Precompiled-header stub; includes `windows.h` and standard C headers |
-| `Kindle Downloader.h` | Includes `resource.h`; included by the main `.cpp` |
-| `KWindow.cpp` | Empty placeholder (left over from earlier version) |
-| `targetver.h` | Sets the minimum Windows SDK version via `SDKDDKVer.h` |
+| File                    | Purpose                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `Kindle Downloader.cpp` | Entry point, dialog proc, both worker threads, UI helpers                       |
+| `KindleUia.h/.cpp`      | UI Automation driver for the new Store app (`kuia::Session`, title matching)    |
+| `Kindle Downloader.rc`  | Dialog layout, icons, string table (UTF-16LE, no BOM)                          |
+| `resource.h`            | Numeric IDs for dialog and controls                                            |
+| `framework.h`           | Include stub; `windows.h` and standard C headers                                |
+| `Kindle Downloader.h`   | Includes `resource.h`; included by the main `.cpp`                              |
+| `KWindow.cpp`           | Empty placeholder (left over from an earlier version)                           |
+| `targetver.h`           | Sets the Windows SDK version via `SDKDDKVer.h`                                  |
+| `build.bat`             | Command-line build; links `ole32`, `oleaut32`, `uiautomationcore`               |
 
 ---
 
 ## State Machine
 
-The application tracks one of five states stored in `g_state`:
+Unchanged in shape from the previous version; `WaitingForKindle` is now also re-entered mid-run
+whenever the Kindle window loses focus.
 
 ```
-Idle ──[Select clicked]──► WaitingForKindle
+Idle ──[Start clicked]──► WaitingForKindle
                                 │
-                    [Kindle window gains focus]
+                    [Kindle window is foreground]
                                 │
                                 ▼
                  ┌──────────── Running ◄────────────────┐
@@ -40,217 +104,212 @@ Idle ──[Select clicked]──► WaitingForKindle
                Paused ──────► Stopped              (from Paused)
                  └───────────────────────────────────────┘
 
-From Stopped or Idle:  Select can be clicked to start a new run.
+From Stopped or Idle:  Start can be clicked to begin a new run.
 ```
 
-| State | Description |
-|---|---|
-| `Idle` | Initial state; no run has been started yet |
-| `WaitingForKindle` | "Select" was clicked; watching for the Kindle window to gain focus |
-| `Running` | Worker thread is actively sending keystrokes |
-| `Paused` | Worker thread is blocked; no keystrokes are sent |
-| `Stopped` | Run has ended (naturally or by user); a new run may be started |
+| State              | Description                                                                  |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `Idle`             | Initial state; no run has been started yet                                    |
+| `WaitingForKindle` | Waiting for the Kindle window to become the foreground window                 |
+| `Running`          | Worker thread is actively downloading                                         |
+| `Paused`           | Worker thread is blocked; nothing is sent                                     |
+| `Stopped`          | Run has ended (naturally, by Stop/F9, or on reaching the stop title)          |
 
 ---
 
 ## Thread Model
 
 ```
-Main thread (UI)                     Worker thread              Hook thread
-─────────────────────                ──────────────             ───────────
-DialogBox() message loop             WorkerProc()               HookThreadProc()
-  handles WM_COMMAND                 WaitForKindle()            GetMessage() loop
-  handles WM_APP_SET_STATE  ◄──────  PostMessage()              KeyboardProc()
-  UpdateUiState()                    SendKey()                    └─ F9 → RequestStop()
-  StartRun() / RequestStop()         WaitInterruptible()
+Main thread (UI)                Worker thread                    Hook thread
+────────────────                ─────────────                    ───────────
+DialogBox()                     WorkerProcNewApp()  or           SetWindowsHookEx(WH_KEYBOARD_LL)
+  MainDlgProc                   WorkerProcClassic()              GetMessage loop
+    Start  -> StartRun            own COM apartment                F9 -> RequestStop()
+    Pause  -> SetPaused           kuia::Session
+    Stop   -> RequestStop         PostMessage -> UI
+    Exit   -> RequestStop
+              JoinWorker
 ```
 
-Two Win32 manual-reset events coordinate the worker thread:
+Synchronisation is by two manual-reset events, exactly as before:
 
-| Event | Signalled meaning | Reset meaning |
-|---|---|---|
-| `g_hStopEvent` | Stop has been requested | Still running |
-| `g_hPauseEvent` | Running (not paused) | Paused — worker blocks |
+| Handle          | Meaning                                                              |
+| --------------- | -------------------------------------------------------------------- |
+| `g_hStopEvent`  | Signalled = stop as soon as possible                                  |
+| `g_hPauseEvent` | Signalled = running; reset = paused (worker blocks, timer frozen)     |
+
+`WaitInterruptible(ms)` is the single chokepoint: it honours pause by blocking, honours stop by
+returning `true`, and is used for every delay in both engines so no wait is ever uninterruptible.
+
+The worker never touches controls directly. It posts messages instead:
+
+| Message            | Payload                             | Handled by                    |
+| ------------------ | ----------------------------------- | ----------------------------- |
+| `WM_APP_SET_STATE` | `WPARAM` = new `AppState`           | `UpdateUiState`               |
+| `WM_APP_LOG`       | `LPARAM` = `new std::wstring*`      | `AddLogLine` (then `delete`)  |
+| `WM_APP_PROGRESS`  | none; counters live behind a mutex  | `RefreshProgress`             |
+
+`DrainPendingLogs` frees any log strings still queued when the dialog closes.
+
+## Run log
+
+A run against a 30,000 book library takes hours, so the list box on the dialog is only the headline.
+Every run also opens a file:
+
+```
+%LOCALAPPDATA%\KindleDownloader\logs\run-<date>-<time>.log
+```
+
+`LogUi` writes to both; `LogDetail` writes only to the file. The file carries the things needed to
+diagnose a run after it has finished: per-book button rectangles, the click point, **what UIA
+actually reported was under the cursor**, and for every scroll the distance moved, the target, the
+notch count and the calibrated pixels-per-notch. It is UTF-8 with a BOM and is flushed after every
+line, so a run that is killed still leaves a complete tail.
+
+Both real bugs in the traversal logic — the row-pitch outlier and the premature hit-test — were
+invisible on screen and obvious in this file, which is the argument for keeping it verbose.
 
 ---
 
-## Main Program Flows
+## New-app worker loop
 
-### 1. Application startup
-
-1. `wWinMain` initialises the Common Controls library (needed for the spin/up-down control).
-2. Creates `g_hookReadyEvent`, then launches `HookThreadProc` on a new thread and waits up to 2 s for it to signal that its message queue is ready.
-3. Calls `DialogBox(IDD_MAINDLG)` which blocks, running the dialog's own internal message loop.
-4. When the dialog closes, posts `WM_QUIT` to the hook thread and joins it.
-
-### 2. Dialog initialisation (`WM_INITDIALOG`)
-
-1. Saves the dialog handle in `g_hDlg`.
-2. Associates the spin control (`IDC_DELAY_SPIN`) with the edit control (`IDC_DELAY_EDIT`) as its buddy via `UDM_SETBUDDY`.
-3. Sets the spin range to 1–60 and the default position to 3 (seconds).
-4. Calls `UpdateUiState(Idle)` to set button enable/disable and status label text.
-
-### 3. Starting a run (`IDC_SELECT` clicked)
-
-1. Reads the delay value from the edit control; clamps to [1, 60].
-2. Calls `UpdateUiState(WaitingForKindle)` — disables Select, Pause, and the delay controls; sets status to "Waiting for Kindle…".
-3. Calls `StartRun()`:
-   - Creates `g_hStopEvent` (not signalled) and `g_hPauseEvent` (signalled = running).
-   - Launches `WorkerProc` on a new `std::thread`.
-
-### 4. Worker thread — waiting phase
-
-`WaitForKindle()` polls `GetForegroundWindow()` every 200 ms. Once the foreground window differs from the dialog for three consecutive polls (~600 ms), it considers the Kindle window active and returns. If `g_hStopEvent` fires during this loop, it returns early.
-
-On success (Kindle detected):
-→ Posts `WM_APP_SET_STATE(Running)` to the dialog.
-
-On stop:
-→ Posts `WM_APP_SET_STATE(Stopped)` and exits.
-
-### 5. Worker thread — automation loop
-
-Iterates up to 800 times (one iteration = one book):
+One press per reading of the list — not one screenful per reading. The extra snapshot costs a few
+hundred milliseconds against a multi-second delay, and it removes a whole class of bug, because the
+library re-sorts itself as downloads complete and a rectangle a few seconds old can point at a
+different book.
 
 ```
-Check stop/pause (WaitInterruptible 0 ms)
-  └─ if stop → break
-  └─ if paused → block until resumed or stopped
-SendKey(VK_RETURN)           ← triggers "Download" in Kindle
-WaitInterruptible(delay × 1000 ms)
-  └─ timer freezes while paused
-  └─ if stop → break
-SendKey(VK_UP)               ← moves selection to the previous book
-WaitInterruptible(100 ms)    ← brief debounce
-  └─ if stop → break
+Initialize COM + UI Automation
+Attach       -> find a Microsoft.UI.Windowing.Window owned by Kindle.exe,
+                confirm the library list is present
+loop:
+    honour pause / stop
+    wait until the Kindle window is foreground        (never click otherwise)
+    snapshot the realised rows (sorted by y) + the viewport rectangle
+
+    scan the visible rows top to bottom and pick the next book:
+        matches the stop title       -> log and finish
+        no Download button           -> count once as already downloaded
+        ASIN already attempted       -> pass over (a second press cancels the transfer)
+        button not wholly on screen  -> defer to the next screen, which overlaps
+        otherwise                    -> this is the target
+
+    if a target was found:
+        press it
+        spend the configured delay watching for its Download button to vanish
+            gone    -> "Downloaded"
+            still there -> "Downloading", left to finish in the background
+        loop (re-read the list)
+
+    otherwise, nothing left on this screen:
+        scroll down by viewport - 2 rows
+        if the list did not move, retry up to 5 times with a pause
+        only then conclude the library has ended
 ```
 
-When the loop ends (by completing all iterations or by stop):
-→ Posts `WM_APP_SET_STATE(Stopped)` and exits.
+Two counts deserve care. A row that is only half on screen is **deferred**, not skipped — it comes
+round on the next screen, and reporting it as a skip is what made the skip counter look alarming.
+A genuine click failure is retried up to three times before it is ever called a skip.
 
-### 6. Pause and resume
+Two safety properties are worth calling out, because they are what stop this from clicking wildly
+around the desktop:
 
-- **Pause button**: calls `SetPaused(true)` which calls `ResetEvent(g_hPauseEvent)`. The worker is blocked inside `WaitInterruptible` at the `WaitForMultipleObjects` call. `UpdateUiState(Paused)` flips the button text to "Resume".
-- **Resume button**: calls `SetPaused(false)` which calls `SetEvent(g_hPauseEvent)`. The worker unblocks and the delay timer continues from where it left off (remaining milliseconds are tracked separately from wall-clock time). `UpdateUiState(Running)` flips the button text back to "Pause".
+- **Re-resolve, then hit-test.** `ClickDownload` looks the button up again by ASIN, checks it is
+  inside the viewport, moves the pointer, and calls `ElementFromPoint` to confirm that the button is
+  genuinely the topmost thing under the cursor. Anything else — a moved row, another window on top,
+  a dialog that stole focus — is reported as a typed `ClickResult` instead of being clicked.
+- **Never press the same ASIN twice.** A second press on a Download button cancels the transfer the
+  first one started, so attempted ASINs are remembered for the run. (Rows that failed for a
+  transient reason are removed from that set so a later pass can retry them.)
 
-### 7. Stop
+The pointer is returned to where the user left it after every press.
 
-- **Stop button or F9**: calls `RequestStop()` which sets both `g_hStopEvent` and `g_hPauseEvent` (to unblock a paused worker). The worker detects the stop event at its next `WaitInterruptible` check and exits, then posts `WM_APP_SET_STATE(Stopped)`.
-- The UI thread receives `WM_APP_SET_STATE(Stopped)`, calls `JoinWorker()` (joining the thread and closing both event handles), then calls `UpdateUiState(Stopped)`.
+---
 
-### 8. Exit
+## Stopping at a title
 
-Clicking Exit, pressing Escape, or closing the window:
-1. Calls `RequestStop()` and `JoinWorker()` (safe to call even if nothing is running).
-2. Calls `EndDialog()`.
-3. Control returns to `wWinMain`, which shuts down the hook thread and returns.
+`kuia::MatchesStopTitle` compares case-insensitively and with runs of whitespace collapsed.
+
+The app lists authors surname-first ("Hunt, Samantha") while people naturally type them
+forename-first, so a whole-string comparison of *"The Unwritten Book: An Investigation by Samantha
+Hunt"* would never match. The matcher therefore tries, in order:
+
+1. the text as a substring of the clean title,
+2. the text as a substring of `"<title> by <author>"`,
+3. if the text contains `" by "`, just the part before it against the title.
+
+When a row matches, the run stops **without downloading that book** — it is a boundary, not the last
+item to fetch.
 
 ---
 
 ## Function Reference
 
-### `wWinMain`
-Entry point. Initialises common controls, starts the keyboard hook thread, runs the app as a modal dialog via `DialogBox`, then cleans up the hook thread before returning.
+### `Kindle Downloader.cpp`
 
----
+| Function                          | Role                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------- |
+| `wWinMain`                        | Sets per-monitor DPI awareness, starts the hook thread, shows the dialog    |
+| `MainDlgProc`                     | Dialog messages, button commands, worker-posted updates                     |
+| `UpdateUiState(hDlg, state)`      | Status text and which controls are enabled for a state                      |
+| `SyncStopTitleAvailability(hDlg)` | Stop-at-title only applies to the new engine; greys it out otherwise        |
+| `StartRun(hDlg, cfg)`             | Resets counters, creates the events, launches the right worker              |
+| `RequestStop` / `SetPaused`       | Signal the events                                                           |
+| `JoinWorker`                      | Joins the thread and closes the handles so a new run can start              |
+| `WaitInterruptible(ms)`           | The one pausable, stoppable delay used everywhere                           |
+| `WaitUntilKindleActive(...)`      | Blocks until Kindle is foreground, narrating the wait once                  |
+| `WorkerProcNewApp(hDlg, cfg)`     | The UI Automation loop described above                                      |
+| `WorkerProcClassic(hDlg, cfg)`    | The original `Enter` / `Up` keystroke loop                                  |
+| `SendKey(vk)`                     | One synthetic key press (classic engine)                                    |
+| `KeyboardProc` / `HookThreadProc` | Global F9 hotkey, routed to the same `RequestStop` as the button            |
 
-### `MainDlgProc`
-Dialog procedure for `IDD_MAINDLG`. Handles:
-- `WM_INITDIALOG` — wires spin buddy, sets range/default, initialises UI state.
-- `WM_APP_SET_STATE` — marshalled from worker thread; joins worker on Stopped, then calls `UpdateUiState`.
-- `WM_COMMAND` — dispatches button clicks (Select, Pause, Stop, Exit/Cancel).
-- `WM_CLOSE` — stops worker, joins, ends dialog.
+### `KindleUia.h/.cpp` — `kuia::Session`
 
----
+| Member                    | Role                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `Initialize(err)`         | COM apartment, `IUIAutomation`, and the cached-property request                |
+| `Attach(err)`             | Finds the Kindle window (class **and** owning process) and its library list    |
+| `EnsureForeground()`      | Un-minimises and activates Kindle, then verifies it really is foreground       |
+| `SnapshotItems(out, err)` | One cached bulk read of every realised row — title, author, ASIN, rectangles   |
+| `GetViewport(out)`        | The scroll viewport, clipped to the window                                     |
+| `HasDownloadButton(asin)` | Still needs downloading? The completion signal a press is verified against      |
+| `ClickDownload(asin, &i)` | Re-resolve, bounds-check, hover, patiently hit-test, press; typed `ClickResult` |
+| `ScrollDown(&info)`       | Down by viewport − 2 rows via the wheel, self-calibrating; reports what moved   |
 
-### `UpdateUiState(hDlg, state)`
-Sets `g_state`, updates the status label text, and enables/disables controls according to the state machine rules:
-- **Select** and the delay spin/edit are enabled only in `Idle` or `Stopped`.
-- **Pause** is enabled only while `Running` or `Paused`; its label toggles between "Pause" and "Resume".
-- **Stop** is enabled while `Running`, `Paused`, or `WaitingForKindle`.
+A `Session` owns per-thread COM state and must be created, used and destroyed on the worker thread.
 
----
-
-### `StartRun(hDlg, delaySec)`
-Creates `g_hStopEvent` (manual-reset, initially unsignalled) and `g_hPauseEvent` (manual-reset, initially signalled = running), then launches `WorkerProc` on a new `std::thread`.
-
----
-
-### `RequestStop()`
-Sets both `g_hStopEvent` and `g_hPauseEvent`. Setting `g_hPauseEvent` ensures a paused worker unblocks and sees the stop event rather than waiting forever.
-
----
-
-### `SetPaused(bool paused)`
-Resets `g_hPauseEvent` to block the worker (pause) or sets it to unblock the worker (resume). No-op if `g_hPauseEvent` is NULL (no run active).
-
----
-
-### `JoinWorker()`
-Joins `g_workerThread` (blocks until it has exited), then closes and nulls `g_hStopEvent` and `g_hPauseEvent`. Safe to call when no worker is running. Always called before starting a new run or exiting.
-
----
-
-### `WorkerProc(hDlg, delaySec)`
-Worker thread body. Two phases:
-1. **Wait phase**: calls `WaitForKindle`; posts `Stopped` and returns if stop fires, or posts `Running` and continues.
-2. **Automation loop**: up to 800 iterations of `SendKey(Enter) → WaitInterruptible(delay) → SendKey(Up) → WaitInterruptible(100)`. Posts `Stopped` when done.
-
----
-
-### `WaitForKindle(hDlg)`
-Polls `GetForegroundWindow()` every 200 ms. Returns `false` (Kindle detected) once the foreground window differs from `hDlg` for `KINDLE_STABLE_POLLS` (3) consecutive polls. Returns `true` if `g_hStopEvent` is signalled before that happens.
-
----
-
-### `WaitInterruptible(ms)`
-Waits for up to `ms` milliseconds, with two interruption paths:
-- **Stop**: `g_hStopEvent` signalled → returns `true` immediately.
-- **Pause**: `g_hPauseEvent` reset → blocks on `WaitForMultipleObjects` until either stop (returns `true`) or resume (continues counting down).
-
-The remaining time is tracked explicitly so the delay timer is frozen while paused. Uses 50 ms slices so stop/pause are detected promptly. Returns `false` when the full duration has elapsed.
-
----
-
-### `SendKey(vk)`
-Sends a key-down then key-up `INPUT` event for the given virtual key code via `SendInput`. Targets whatever window currently holds foreground focus.
-
----
-
-### `KeyboardProc(nCode, wParam, lParam)`
-Low-level keyboard hook callback. Calls `RequestStop()` when F9 (`VK_F9`) key-down is detected. Passes all events to the next hook via `CallNextHookEx`.
-
----
-
-### `HookThreadProc()`
-Runs the keyboard hook on a dedicated thread so it has its own message queue (required for `WH_KEYBOARD_LL`). Primes the message queue with `PeekMessage`, signals `g_hookReadyEvent` so `wWinMain` knows the hook is ready, installs the hook with `SetWindowsHookEx`, then runs a `GetMessage` loop until `WM_QUIT` is posted by `wWinMain` at exit. Removes the hook with `UnhookWindowsHookEx` before returning.
+`SnapshotItems` uses `FindAllBuildCache` with a subtree cache request, so a whole page of rows costs
+one cross-process call rather than several hundred property fetches — this matters a great deal on
+a 35,000-book library.
 
 ---
 
 ## Resource Layout (`IDD_MAINDLG`)
 
+300 × 215 dialog units.
+
+| Row    | Controls                                                                     |
+| ------ | ---------------------------------------------------------------------------- |
+| y=4    | "Kindle app" group box: `IDC_MODE_NEW`, `IDC_MODE_CLASSIC`                    |
+| y=44   | "Delay (seconds)": `IDC_DELAY_EDIT` + `IDC_DELAY_SPIN` (range 1–60, default 3)|
+| y=62   | `IDC_STOP_TITLE_CHECK` and `IDC_STOP_TITLE_EDIT`                              |
+| y=95   | `IDC_STATUS_LABEL`, `IDC_COUNTS_LABEL`, `IDC_CURRENT_LABEL`                   |
+| y=130  | `IDC_LOG` list box (activity log, capped at 500 lines)                        |
+| y=194  | `IDC_SELECT` (Start), `IDC_PAUSE`, `IDC_STOP`, `IDC_EXIT_BTN`                 |
+
+The `.rc` is UTF-16LE with **no BOM**; keep it that way when editing.
+
+---
+
+## Building
+
 ```
-┌─────────────────────────────────────────┐
-│  Kindle Downloader                  [X] │
-├─────────────────────────────────────────┤
-│  Delay (seconds):  [ 3 ][▲]            │
-│                                         │
-│  Status: Idle                           │
-│                                         │
-│       [ Select Kindle Book List ]       │
-│                                         │
-│    [ Pause ]          [ Stop ]          │
-│                                         │
-│              [ Exit ]                   │
-└─────────────────────────────────────────┘
+build.bat            :: release
+build.bat debug      :: debug
 ```
 
-| Control ID | Type | Purpose |
-|---|---|---|
-| `IDC_DELAY_EDIT` | `EDITTEXT` | Numeric input for delay (1–60 s) |
-| `IDC_DELAY_SPIN` | `msctls_updown32` | Spin arrows; buddy is `IDC_DELAY_EDIT` |
-| `IDC_STATUS_LABEL` | `LTEXT` | Displays current state text |
-| `IDC_SELECT` | `PUSHBUTTON` | Starts a run (arms the waiting phase) |
-| `IDC_PAUSE` | `PUSHBUTTON` | Toggles pause/resume; label changes accordingly |
-| `IDC_STOP` | `PUSHBUTTON` | Stops the current run |
-| `IDC_EXIT_BTN` | `PUSHBUTTON` | Exits the application |
+Output lands in `build\release\KindleDownloader.exe`. The UI Automation engine adds `ole32.lib`,
+`oleaut32.lib` and `uiautomationcore.lib` to the link line.
+
+Per-monitor-v2 DPI awareness is set at startup and is **not optional** — UI Automation reports
+physical pixels, so without it every rectangle is scaled and every click misses.

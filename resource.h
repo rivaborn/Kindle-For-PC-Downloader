@@ -18,6 +18,13 @@
 #define IDC_STOP                        1014
 #define IDC_SELECT                      1015
 #define IDC_EXIT_BTN                    1016
+#define IDC_MODE_NEW                    1020
+#define IDC_MODE_CLASSIC                1021
+#define IDC_STOP_TITLE_CHECK            1022
+#define IDC_STOP_TITLE_EDIT             1023
+#define IDC_COUNTS_LABEL                1024
+#define IDC_CURRENT_LABEL               1025
+#define IDC_LOG                         1026
 
 #define IDC_STATIC                      -1
 
@@ -26,7 +33,7 @@
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        201
 #define _APS_NEXT_COMMAND_VALUE         32773
-#define _APS_NEXT_CONTROL_VALUE         1017
+#define _APS_NEXT_CONTROL_VALUE         1027
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif
